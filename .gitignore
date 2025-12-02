@@ -6,6 +6,10 @@ __pycache__/
 # C extensions
 *.so
 
+/out
+
+/assets/geotiff_tiles/
+
 # Distribution / packaging
 .Python
 build/

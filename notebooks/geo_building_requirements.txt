@@ -1,0 +1,11 @@
+# Core numerical and geospatial stack
+numpy
+torch
+rasterio
+shapely
+geopandas
+pillow
+
+# Notebook/UI helpers
+ipython
+jupyter
