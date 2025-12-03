@@ -107,10 +107,26 @@ def overlay_instance_masks(
 
     img_np = np.array(image).astype(np.uint8)
     overlay = img_np.copy()
+    target_h, target_w = img_np.shape[:2]
 
     for i, m in enumerate(masks):
         # Binary mask; SAM3 may give float masks
+        # First squeeze out any singleton dimensions
+        m = np.squeeze(m)
+
+        # Handle case where mask might still be 3D (e.g., [1, H, W] or [H, W, 1])
+        while m.ndim > 2:
+            m = m.squeeze()
+
         m_bin = m > 0.5
+
+        # Check if mask dimensions match the image
+        if m_bin.shape != (target_h, target_w):
+            # Resize mask to match image dimensions using PIL
+            mask_img = Image.fromarray((m_bin * 255).astype(np.uint8), mode='L')
+            mask_img = mask_img.resize((target_w, target_h), Image.BILINEAR)
+            m_bin = np.array(mask_img) > 127
+
         if not m_bin.any():
             continue
 
