@@ -1,0 +1,47 @@
+Linux quick-start for running `video_ui.py`
+
+Prereqs
+- NVIDIA GPU with CUDA 12.6+ drivers installed (`nvidia-smi` should work).
+- Python 3.12 (Conda recommended).
+- ffmpeg on PATH (`sudo apt-get install ffmpeg` on Debian/Ubuntu).
+- Access to SAM3 checkpoints on Hugging Face and a token (`hf login` or `huggingface-cli login`).
+
+1) Create and activate an environment
+```
+conda create -n sam3 python=3.12 -y
+conda activate sam3
+```
+
+2) Install PyTorch 
+with CUDA 12.6 wheels
+```
+pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu128
+
+3) Install SAM3 and UI dependencies (run from repo root)
+```
+pip install -e .           # base SAM3 package
+pip install gradio opencv-python
+```
+Optional (for notebooks/dev tools): `pip install -e ".[notebooks]"` or `pip install -e ".[dev]"`.
+
+4) Authenticate for model checkpoints
+```
+hf auth login                   # paste your HF token with access to facebook/sam3
+```
+After login, the first model load will download weights into your HF cache (`~/.cache/huggingface` by default).
+
+Install all the random dependencie
+pip install decord einops pycocotools psutil
+
+sudo apt-get update && sudo apt-get install -y ffmpeg
+
+5) Run the video UI
+```sudo apt-get update && sudo apt-get install -y ffmpeg
+python video_ui.py
+```
+Gradio will print a local URL (and optionally a public share link). Open the local URL in your browser, upload a video, enter a text prompt, and adjust preprocessing sliders (resolution/FPS/duration) as needed.
+
+Notes
+- If ffmpeg is missing, install it and re-run. The UI preprocesses videos with ffmpeg to cut memory use.
+- Set `CUDA_VISIBLE_DEVICES` if you need to select a specific GPU.
+- Outputs are written to `outputs/` in the repo.
