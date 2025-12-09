@@ -14,7 +14,7 @@ Requirements:
     pip install git+https://github.com/huggingface/transformers.git
 
 Usage:
-    python mgp_building_segmentation_app.py
+    python app.py
 """
 
 import os
