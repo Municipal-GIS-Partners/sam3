@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SAM3 Bounding Box Segmentation</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>SAM3 Bounding Box Segmentation</h1>
+            <p>Draw bounding boxes on your image or use text prompts to segment objects</p>
+        </header>
+
+        <div class="main-content">
+            <div class="control-panel">
+                <div class="upload-section">
+                    <h3>1. Upload Image</h3>
+                    <input type="file" id="imageUpload" accept="image/*">
+                    <button id="clearImage" class="btn btn-secondary">Clear Image</button>
+                </div>
+
+                <div class="mode-section">
+                    <h3>2. Choose Mode</h3>
+                    <div class="mode-toggle">
+                        <label>
+                            <input type="radio" name="mode" value="box" checked>
+                            Bounding Box Mode
+                        </label>
+                        <label>
+                            <input type="radio" name="mode" value="text">
+                            Text Prompt Mode
+                        </label>
+                    </div>
+                </div>
+
+                <div class="box-controls" id="boxControls">
+                    <h3>3. Draw Bounding Boxes</h3>
+                    <p class="instructions">Click and drag on the image to draw boxes</p>
+                    <button id="clearBoxes" class="btn btn-secondary">Clear All Boxes</button>
+                    <button id="undoBox" class="btn btn-secondary">Undo Last Box</button>
+                    <div id="boxList" class="box-list"></div>
+                </div>
+
+                <div class="text-controls" id="textControls" style="display: none;">
+                    <h3>3. Enter Text Prompt</h3>
+                    <input type="text" id="textPrompt" placeholder='e.g., "a person", "a car", "yellow excavator"'>
+                </div>
+
+                <div class="action-section">
+                    <h3>4. Run Segmentation</h3>
+                    <button id="runSegmentation" class="btn btn-primary">Run SAM3</button>
+                </div>
+
+                <div class="results-section" id="resultsSection" style="display: none;">
+                    <h3>Results</h3>
+                    <div id="resultsInfo"></div>
+                    <button id="downloadResult" class="btn btn-secondary">Download Result</button>
+                </div>
+            </div>
+
+            <div class="canvas-panel">
+                <div class="zoom-controls">
+                    <button id="zoomOut" class="btn btn-secondary">-</button>
+                    <span id="zoomLabel">100%</span>
+                    <button id="zoomIn" class="btn btn-secondary">+</button>
+                    <button id="zoomReset" class="btn btn-secondary">Reset</button>
+                    <div class="page-controls" id="pageControls" style="display: none;">
+                        <button id="prevPage" class="btn btn-secondary">Prev</button>
+                        <span id="pageLabel">Page 1/1</span>
+                        <button id="nextPage" class="btn btn-secondary">Next</button>
+                    </div>
+                </div>
+                <div class="canvas-container">
+                    <canvas id="imageCanvas"></canvas>
+                    <div id="loadingOverlay" class="loading-overlay" style="display: none;">
+                        <div class="spinner"></div>
+                        <p>Processing with SAM3...</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+</body>
+</html>
