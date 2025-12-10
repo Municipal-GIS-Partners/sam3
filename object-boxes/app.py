@@ -16,6 +16,7 @@ from typing import List, Tuple, Callable, Dict, Any, Optional
 import numpy as np
 from PIL import Image
 import torch
+import cv2
 from flask import Flask, render_template, request, jsonify
 from werkzeug.utils import secure_filename
 from werkzeug.exceptions import RequestEntityTooLarge
@@ -239,17 +240,73 @@ def overlay_masks_on_image(image, masks, scores, colors=None, alpha=0.5):
     return Image.fromarray(overlay)
 
 
+def _nms_boxes(boxes, scores, iou_thresh=0.3):
+    if len(boxes) == 0:
+        return []
+    boxes = np.array(boxes, dtype=np.float32)
+    scores = np.array(scores, dtype=np.float32)
+    x1 = boxes[:, 0]
+    y1 = boxes[:, 1]
+    x2 = boxes[:, 2]
+    y2 = boxes[:, 3]
+    areas = (x2 - x1 + 1) * (y2 - y1 + 1)
+    order = scores.argsort()[::-1]
+    keep = []
+    while order.size > 0:
+        i = order[0]
+        keep.append(i)
+        xx1 = np.maximum(x1[i], x1[order[1:]])
+        yy1 = np.maximum(y1[i], y1[order[1:]])
+        xx2 = np.minimum(x2[i], x2[order[1:]])
+        yy2 = np.minimum(y2[i], y2[order[1:]])
+        w = np.maximum(0.0, xx2 - xx1 + 1)
+        h = np.maximum(0.0, yy2 - yy1 + 1)
+        inter = w * h
+        ovr = inter / (areas[i] + areas[order[1:]] - inter + 1e-6)
+        inds = np.where(ovr <= iou_thresh)[0]
+        order = order[inds + 1]
+    return boxes[keep].tolist()
+
+
+def _match_template_candidates(page_image: Image.Image, template_box, tile_size=1000, overlap=200, threshold=0.82):
+    """Use template matching to propose candidate boxes matching the user example."""
+    img_w, img_h = page_image.size
+    page_gray = cv2.cvtColor(np.array(page_image), cv2.COLOR_RGB2GRAY)
+    x1, y1, x2, y2 = [int(v) for v in template_box]
+    tmpl = page_gray[y1:y2, x1:x2]
+    if tmpl.size == 0:
+        return []
+    th, tw = tmpl.shape[:2]
+    step = max(1, tile_size - overlap)
+    candidates = []
+    scores = []
+    for y0 in range(0, img_h, step):
+        for x0 in range(0, img_w, step):
+            y_end = min(y0 + tile_size, img_h)
+            x_end = min(x0 + tile_size, img_w)
+            tile = page_gray[y0:y_end, x0:x_end]
+            if tile.shape[0] < th or tile.shape[1] < tw:
+                continue
+            res = cv2.matchTemplate(tile, tmpl, cv2.TM_CCOEFF_NORMED)
+            loc = np.where(res >= threshold)
+            for (py, px) in zip(*loc):
+                score = res[py, px]
+                gx1 = x0 + px
+                gy1 = y0 + py
+                gx2 = gx1 + tw
+                gy2 = gy1 + th
+                candidates.append([float(gx1), float(gy1), float(gx2), float(gy2)])
+                scores.append(float(score))
+    # NMS to reduce duplicates
+    kept = _nms_boxes(candidates, scores, iou_thresh=0.3)
+    return kept
+
+
 def process_page_with_tiling(processor, image, boxes_xyxy, prompt, tile_size=1200, overlap=128):
     """
     Run tiled inference to preserve high resolution and catch small objects.
-
-    Args:
-        processor: Sam3Processor
-        image: PIL Image
-        boxes_xyxy: list of [x1, y1, x2, y2] in pixel coords
-        prompt: text prompt or empty string
-        tile_size: max tile dimension
-        overlap: number of pixels to overlap tiles for seamless stitching
+    Adds a proposal stage: if boxes are provided and no text prompt, use the first
+    user box as a template to find similar objects across the page, then segment.
     """
     img_w, img_h = image.size
     base_overlay = np.array(image).astype(np.uint8)
@@ -258,8 +315,18 @@ def process_page_with_tiling(processor, image, boxes_xyxy, prompt, tile_size=120
     rng = np.random.RandomState(1234)
     total_masks = 0
 
-    # Normalize boxes once for quick filtering
     boxes_array = np.array(boxes_xyxy, dtype=np.float32) if boxes_xyxy else np.zeros((0, 4), dtype=np.float32)
+
+    # Proposal stage: if user provided at least one box and no prompt, find similar boxes.
+    candidate_boxes = []
+    if not prompt and boxes_array.shape[0] > 0:
+        template_box = boxes_array[0].tolist()
+        candidate_boxes = _match_template_candidates(image, template_box, tile_size=800, overlap=150, threshold=0.82)
+        if len(candidate_boxes) == 0:
+            # Fallback to user-provided boxes
+            candidate_boxes = boxes_array.tolist()
+    elif boxes_array.shape[0] > 0:
+        candidate_boxes = boxes_array.tolist()
 
     step = tile_size - overlap
     y0 = 0
@@ -272,13 +339,10 @@ def process_page_with_tiling(processor, image, boxes_xyxy, prompt, tile_size=120
 
             # Select boxes that intersect this tile
             tile_boxes = []
-            if boxes_array.size > 0:
-                x1s = boxes_array[:, 0]
-                y1s = boxes_array[:, 1]
-                x2s = boxes_array[:, 2]
-                y2s = boxes_array[:, 3]
-                intersects = (x2s > x0) & (x1s < x1) & (y2s > y0) & (y1s < y1)
-                selected = boxes_array[intersects]
+            if candidate_boxes:
+                cands = np.array(candidate_boxes, dtype=np.float32)
+                intersects = (cands[:, 2] > x0) & (cands[:, 0] < x1) & (cands[:, 3] > y0) & (cands[:, 1] < y1)
+                selected = cands[intersects]
                 for bx in selected:
                     adj = [
                         max(bx[0] - x0, 0),
@@ -290,7 +354,7 @@ def process_page_with_tiling(processor, image, boxes_xyxy, prompt, tile_size=120
                         tile_boxes.append(adj)
 
             # Skip tiles without prompts/boxes
-            if not prompt and len(tile_boxes) == 0 and boxes_array.size > 0:
+            if not prompt and len(tile_boxes) == 0 and (candidate_boxes or boxes_array.size > 0):
                 x0 += step
                 continue
 

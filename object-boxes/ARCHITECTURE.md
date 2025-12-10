@@ -34,8 +34,8 @@ This document explains what the app does, how it works end‑to‑end, and highl
   - `process_page_with_tiling`: splits page into overlapping tiles (default 1200 px tiles, 128 px overlap), filters boxes per tile, runs SAM3 on each tile, stitches overlays, accumulates scores/colors.
 - **Segmentation flow**
   - Normalizes user boxes from drawing page size to page size.
-  - For each page: render page → select per‑page boxes → tiled inference → overlay masks → return per‑page payload.
-  - Text prompt path uses same tiling (runs prompt on each tile).
+  - Proposal + segmentation: if a user box is provided (no text prompt), the first box is used as a template; we run template matching per tile to propose similar boxes, then pass those boxes to SAM3 for refinement. If template search fails, we fall back to the provided boxes. Text prompt path uses the tiling path directly.
+  - For each page: render page → proposal (if applicable) → tiled inference → overlay masks → return per‑page payload.
 - **Error handling**
   - 64 MB upload cap with 413 handler.
   - Safe guards for missing doc/page and missing inputs.
