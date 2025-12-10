@@ -239,6 +239,106 @@ def overlay_masks_on_image(image, masks, scores, colors=None, alpha=0.5):
     return Image.fromarray(overlay)
 
 
+def process_page_with_tiling(processor, image, boxes_xyxy, prompt, tile_size=1200, overlap=128):
+    """
+    Run tiled inference to preserve high resolution and catch small objects.
+
+    Args:
+        processor: Sam3Processor
+        image: PIL Image
+        boxes_xyxy: list of [x1, y1, x2, y2] in pixel coords
+        prompt: text prompt or empty string
+        tile_size: max tile dimension
+        overlap: number of pixels to overlap tiles for seamless stitching
+    """
+    img_w, img_h = image.size
+    base_overlay = np.array(image).astype(np.uint8)
+    all_scores = []
+    all_colors = []
+    rng = np.random.RandomState(1234)
+    total_masks = 0
+
+    # Normalize boxes once for quick filtering
+    boxes_array = np.array(boxes_xyxy, dtype=np.float32) if boxes_xyxy else np.zeros((0, 4), dtype=np.float32)
+
+    step = tile_size - overlap
+    y0 = 0
+    while y0 < img_h:
+        x0 = 0
+        y1 = min(y0 + tile_size, img_h)
+        while x0 < img_w:
+            x1 = min(x0 + tile_size, img_w)
+            tile = image.crop((x0, y0, x1, y1))
+
+            # Select boxes that intersect this tile
+            tile_boxes = []
+            if boxes_array.size > 0:
+                x1s = boxes_array[:, 0]
+                y1s = boxes_array[:, 1]
+                x2s = boxes_array[:, 2]
+                y2s = boxes_array[:, 3]
+                intersects = (x2s > x0) & (x1s < x1) & (y2s > y0) & (y1s < y1)
+                selected = boxes_array[intersects]
+                for bx in selected:
+                    adj = [
+                        max(bx[0] - x0, 0),
+                        max(bx[1] - y0, 0),
+                        min(bx[2] - x0, x1 - x0),
+                        min(bx[3] - y0, y1 - y0),
+                    ]
+                    if adj[2] - adj[0] > 1 and adj[3] - adj[1] > 1:
+                        tile_boxes.append(adj)
+
+            # Skip tiles without prompts/boxes
+            if not prompt and len(tile_boxes) == 0 and boxes_array.size > 0:
+                x0 += step
+                continue
+
+            state_tile = processor.set_image(tile)
+            if prompt:
+                output_tile = processor.set_text_prompt(state=state_tile, prompt=prompt)
+            else:
+                output_tile = processor.set_boxes(state=state_tile, boxes=tile_boxes)
+
+            masks_tile = output_tile.get('masks', None)
+            scores_tile = output_tile.get('scores', None)
+            if masks_tile is None or scores_tile is None:
+                x0 += step
+                continue
+
+            if torch.is_tensor(masks_tile):
+                masks_tile = masks_tile.detach().cpu().numpy()
+            if torch.is_tensor(scores_tile):
+                scores_tile = scores_tile.detach().cpu().numpy()
+
+            # Colors for this tile
+            colors_tile = []
+            for _ in range(len(masks_tile)):
+                colors_tile.append(tuple(rng.randint(50, 255, size=3).tolist()))
+
+            # Overlay tile results
+            tile_overlay = overlay_masks_on_image(tile, masks_tile, scores_tile, colors=colors_tile)
+            tile_np = np.array(tile_overlay).astype(np.uint8)
+            base_overlay[y0:y1, x0:x1] = tile_np
+
+            all_scores.extend(scores_tile.tolist())
+            all_colors.extend(colors_tile)
+            total_masks += len(masks_tile)
+
+            x0 += step
+        y0 += step
+
+    result_image = Image.fromarray(base_overlay)
+    return {
+        'result_image': encode_image_to_base64(result_image),
+        'num_masks': total_masks,
+        'scores': all_scores,
+        'colors': all_colors,
+        'width': img_w,
+        'height': img_h,
+    }
+
+
 @app.route('/')
 def index():
     """Serve the main page."""
@@ -409,56 +509,8 @@ def segment():
         _, processor = load_sam3_model()
 
         def process_single_image(image, boxes_xyxy):
-            set_image_start = time.time()
-            state_local = processor.set_image(image)
-            print(f"[REQUEST] Image set in {time.time() - set_image_start:.2f}s")
-
-            if prompt:
-                print(f"[REQUEST] Processing text prompt: '{prompt}'")
-                process_start = time.time()
-                output_local = processor.set_text_prompt(state=state_local, prompt=prompt)
-                print(f"[REQUEST] Text prompt processed in {time.time() - process_start:.2f}s")
-            else:
-                print(f"[REQUEST] Processing {len(boxes_xyxy)} bounding boxes")
-                print(f"[REQUEST] Boxes: {boxes_xyxy}")
-                process_start = time.time()
-                boxes_array = np.array(boxes_xyxy, dtype=np.float32)
-                output_local = processor.set_boxes(state=state_local, boxes=boxes_array)
-                print(f"[REQUEST] Boxes processed in {time.time() - process_start:.2f}s")
-            return output_local
-
-        def prepare_response(image, output):
-            masks_local = output.get('masks', None)
-            scores_local = output.get('scores', None)
-
-            if masks_local is None or scores_local is None:
-                raise ValueError("Model returned no results")
-
-            if torch.is_tensor(masks_local):
-                masks_local = masks_local.detach().cpu().numpy()
-            if torch.is_tensor(scores_local):
-                scores_local = scores_local.detach().cpu().numpy()
-
-            print(f"[REQUEST] Model returned {len(masks_local)} masks")
-            print(f"[REQUEST] Mask scores: {scores_local}")
-
-            colors_local = []
-            for i in range(len(masks_local)):
-                rng = np.random.RandomState(i + 42)
-                colors_local.append(tuple(rng.randint(50, 255, size=3).tolist()))
-
-            print("[REQUEST] Creating overlay visualization...")
-            result_image_local = overlay_masks_on_image(image, masks_local, scores_local, colors=colors_local)
-
-            print("[REQUEST] Encoding result image...")
-            result_b64_local = encode_image_to_base64(result_image_local)
-
-            return {
-                'result_image': result_b64_local,
-                'num_masks': len(masks_local),
-                'scores': scores_local.tolist(),
-                'colors': colors_local
-            }
+            # Use tiling to preserve high resolution and small objects.
+            return process_page_with_tiling(processor, image, boxes_xyxy, prompt)
 
         # Multi-page document processing
         if doc_id:
@@ -485,8 +537,7 @@ def segment():
                 else:
                     page_boxes = boxes  # unused when prompt is present
 
-                output = process_single_image(page_image, page_boxes)
-                page_payload = prepare_response(page_image, output)
+                page_payload = process_single_image(page_image, page_boxes)
                 page_payload['page_index'] = page_idx
                 page_payload['width'] = page_w
                 page_payload['height'] = page_h
@@ -505,8 +556,7 @@ def segment():
         image = decode_base64_image(image_data_url)
         print(f"[REQUEST] Image size: {image.size[0]}x{image.size[1]}")
 
-        output = process_single_image(image, boxes)
-        response_payload = prepare_response(image, output)
+        response_payload = process_single_image(image, boxes)
 
         total_time = time.time() - request_start
         print(f"[REQUEST] Request completed in {total_time:.2f}s\n")
