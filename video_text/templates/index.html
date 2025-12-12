@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SAM3 Video Segmentation | Municipal GIS Partners</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Nunito+Sans:wght@300;400;600;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>SAM3 Video Text-Prompt Segmentation</h1>
+            <p class="subtitle">Segment objects in videos using text prompts with Meta's SAM3</p>
+        </header>
+
+        <!-- Upload Section -->
+        <section id="uploadSection" class="section">
+            <h2>1. Upload Video</h2>
+            <div class="upload-area">
+                <input type="file" id="videoUpload" accept="video/*" class="hidden" aria-label="Choose video file">
+                <button type="button" id="uploadButton" class="btn-primary">Choose Video File</button>
+                <p class="hint">Supported formats: MP4, AVI, MOV, etc.</p>
+            </div>
+            <div id="videoInfo" class="video-info hidden">
+                <h3>Video Information</h3>
+                <div class="info-grid">
+                    <div class="info-item">
+                        <span class="info-label">Duration:</span>
+                        <span id="videoDuration" class="info-value"></span>
+                    </div>
+                    <div class="info-item">
+                        <span class="info-label">FPS:</span>
+                        <span id="videoFps" class="info-value"></span>
+                    </div>
+                    <div class="info-item">
+                        <span class="info-label">Resolution:</span>
+                        <span id="videoResolution" class="info-value"></span>
+                    </div>
+                    <div class="info-item">
+                        <span class="info-label">Total Frames:</span>
+                        <span id="totalFrames" class="info-value"></span>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Controls Section -->
+        <section id="controlsSection" class="section hidden">
+            <h2>2. Configure Processing</h2>
+
+            <div class="control-group">
+                <label for="textPrompt">Text Prompt:</label>
+                <input type="text" id="textPrompt" placeholder='e.g., "person", "car", "dog"' class="text-input">
+                <p class="hint">Enter the object you want to segment</p>
+            </div>
+
+            <div class="control-group">
+                <label for="frameInterval">Frame Interval (seconds):</label>
+                <div class="slider-container">
+                    <input type="range" id="frameInterval" min="0.5" max="10" step="0.5" value="1" class="slider">
+                    <span id="intervalValue" class="slider-value">1.0</span>
+                </div>
+                <p class="hint">Extract 1 frame every <span id="intervalValueText">1.0</span> seconds</p>
+            </div>
+
+            <div class="control-group">
+                <label for="confidenceThreshold">Confidence Threshold:</label>
+                <div class="slider-container">
+                    <input type="range" id="confidenceThreshold" min="0" max="1" step="0.05" value="0.5" class="slider">
+                    <span id="thresholdValue" class="slider-value">0.50</span>
+                </div>
+                <p class="hint">Minimum confidence score to display masks</p>
+            </div>
+
+            <button type="button" id="processButton" class="btn-primary btn-large">Process Video</button>
+        </section>
+
+        <!-- Progress Section -->
+        <section id="progressSection" class="section hidden">
+            <h2>Processing...</h2>
+            <div class="progress-bar">
+                <div id="progressFill" class="progress-fill"></div>
+            </div>
+            <p id="progressText" class="progress-text"></p>
+        </section>
+
+        <!-- Results Section -->
+        <section id="resultsSection" class="section hidden">
+            <h2>3. Results</h2>
+
+            <div class="results-controls">
+                <button type="button" id="prevFrame" class="btn-nav">&lt; Previous</button>
+                <span id="frameCounter" class="frame-counter"></span>
+                <button type="button" id="nextFrame" class="btn-nav">Next &gt;</button>
+            </div>
+
+            <div class="comparison-view">
+                <div class="image-panel">
+                    <h3>Original</h3>
+                    <div class="image-container">
+                        <img id="originalImage" class="result-image" alt="Original frame">
+                    </div>
+                    <p class="image-info">Timestamp: <span id="timestamp"></span>s</p>
+                </div>
+
+                <div class="image-panel">
+                    <h3>Segmented</h3>
+                    <div class="image-container">
+                        <img id="resultImage" class="result-image" alt="Segmented frame">
+                    </div>
+                    <p class="image-info">Masks: <span id="maskCount"></span></p>
+                </div>
+            </div>
+
+            <div class="thumbnail-section">
+                <h3>All Frames</h3>
+                <div id="thumbnailGrid" class="thumbnail-grid"></div>
+            </div>
+
+            <div class="download-section">
+                <button type="button" id="downloadCurrent" class="btn-secondary">Download Current Frame</button>
+                <button type="button" id="downloadAll" class="btn-primary">Download All Results (ZIP)</button>
+            </div>
+        </section>
+    </div>
+
+    <script src="/static/js/app.js"></script>
+</body>
+</html>
